@@ -1,13 +1,3 @@
-import scrapy
-import time
-import scrapy
-from scrapy.http import HtmlResponse
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
 
 # class dealprivatespiderSpider(scrapy.Spider):
 #     name = 'newsspider'
@@ -39,6 +29,15 @@ from webdriver_manager.chrome import ChromeDriverManager
 #             time.sleep(5)
 #         except:
 #             print("No 'More' button found or can't be clicked. Stopping.")
+import scrapy
+import time
+import datetime
+from scrapy.http import HtmlResponse
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 class DealPrivateSpider(scrapy.Spider):
@@ -55,36 +54,52 @@ class DealPrivateSpider(scrapy.Spider):
     def parse(self, response):
         self.driver.get(response.url)
 
-        click_count = 0  # Track how many times the button is clicked
-        max_clicks = 5   # Limit to 5 clicks
+        max_clicks = 10  # Max clicks to load more articles
+        click_count = 0  
 
         while click_count < max_clicks:
-            time.sleep(2)  # Wait for articles to load
+            time.sleep(2)  
             try:
                 more_button = self.driver.find_element(By.XPATH, '//*[@id="archive-wrapper"]/div[5]/div/button')
                 self.driver.execute_script("arguments[0].scrollIntoView();", more_button)
                 time.sleep(1)
                 more_button.click()
-                time.sleep(3)  # Wait for new articles to load
-                click_count += 1  # Increment click count
+                time.sleep(3)  
+                click_count += 1  
                 print(f"'More' button clicked {click_count} times.")
             except:
                 print("No 'More' button found. Stopping.")
-                break  # Stop if the button is not found
+                break  
 
-        # Get the fully loaded page source
         html = self.driver.page_source
         self.driver.quit()
 
-        # Convert Selenium HTML to Scrapy response
         sel_response = HtmlResponse(url=response.url, body=html, encoding='utf-8')
 
-        # Extract all articles
         allnews = sel_response.css("div.main-list-row")
         for news in allnews:
-            yield {          
-                'source': news.css("p.category-link a::text").get(),
-                'url': news.css("a::attr(href)").get(),
-                'title': news.css("a h3::text").get(),
-                'body': news.css("div.excerpt p::text").get(),
-            }
+            article_url = news.css("a::attr(href)").get()
+            if article_url:
+                yield response.follow(article_url, self.parse_article)
+
+    def parse_article(self, response):
+        date_text = response.css('div.publish-date::text').get()
+        formatted_date = self.parse_and_format_date(date_text)
+
+        yield {
+            'title': response.css("h1::text").get(),
+            'source': response.css("div.author-name a::text").get(),
+            'date': formatted_date,
+            'body': " ".join(response.css("article p::text").getall()),
+            'url': response.url
+        }
+
+    def parse_and_format_date(self, date_text):
+        """ Convert date format to standard format (dd, mm, yyyy) """
+        if date_text:
+            try:
+                date_obj = datetime.datetime.strptime(date_text, "%B %d, %Y")  # Example: "January 15, 2024"
+                return date_obj.strftime("%d, %m, %Y")
+            except ValueError:
+                return None  # Return None if date parsing fails
+        return None
